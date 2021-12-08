@@ -2,6 +2,7 @@
 
 set -e
 
+PWD=$(pwd)
 THIS_DIR=$(dirname "$(readlink -f "$0")")
 CONF_REPOS="$THIS_DIR/repos.list"
 CODEBASE="$THIS_DIR/codebase"
@@ -9,7 +10,7 @@ CODEBASE="$THIS_DIR/codebase"
 function main {
   cmd=$1
   if [ -z "$cmd" ]; then
-    log --red -e "No command given! Try running\n\$ $0 help"
+    log --error -e "No command given! Try running\n\$ $0 help"
     exit 1
   fi
   shift 1
@@ -23,8 +24,16 @@ function main {
       clone $@
       ;;
 
+    "refresh")
+      refresh $@
+      ;;
+
+    "refresh-dir")
+      refresh_dir $@
+      ;;
+
     *)
-      echo "Command not recognized! Try running\n\$ $0 help"
+      log --error -e "Command not recognized! Try running\n\$ $0 help"
       ;;
   esac
 }
@@ -40,19 +49,64 @@ function clone {
   for repo in $(cat $CONF_REPOS); do
     repodir="$(grep -oP '/.*\.git$' <<<$repo | sed -r 's/\/(.*)\.git$/\1/g')"
     repodir="$CODEBASE/$repodir"
-    log --green Cloning $repo to $(realpath "$repodir")
+    log --info Cloning $repo to $(realpath "$repodir")
     if [ -e $repodir ]; then
-      log --yellow "Warning: $repodir already exists; clone canceled"
+      log --warn "Warning: $repodir already exists; clone canceled"
     else
       git clone "$repo" "$repodir"
     fi
   done
 }
 
+function refresh {
+  log Refreshing all repos cloned in $CODEBASE
+  for rcdir in $(ls $CODEBASE); do
+    radir=$(realpath "$CODEBASE/$rcdir")
+    log --info $radir
+    if [ ! -e "$radir/.git" ]; then
+      log --warn Directory $radir is not a git repo
+    else
+      refresh_dir $radir
+    fi
+  done
+}
+
+function refresh_dir {
+  rcdir=$1
+  log --info "Fetching remote for $rcdir"
+  cd $rcdir
+  _git fetch -apq
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed "s@^origin/@@")
+  stash=0
+  if ! git status | grep "working tree clean" > /dev/null; then
+    _git stash -q
+    stash=1
+  fi
+  if test ! $branch = $default_branch; then
+    _git checkout -q $default_branch
+  fi
+  _git merge -q --ff-only
+  if test ! $branch = $default_branch; then
+    _git checkout -q $branch
+  fi
+  if test $stash = 1; then
+    _git stash pop -q
+  fi
+}
+
+function _git {
+  log $ git $@
+  git $@
+}
+
 red=`tput setaf 1`
 green=`tput setaf 2`
 yellow=`tput setaf 3`
 reset=`tput sgr0`
+info=$green
+warn=$yellow
+error=$red
 function log {
   if grep -P "^--" <<<$1 >>/dev/null; then
     color=$(sed -r "s/--(.*)/\1/g" <<<$1)
@@ -61,6 +115,7 @@ function log {
   else
     echo -n $reset
   fi
+  echo -n $(date "+%FT%T|") ""
   echo $@ $reset
 }
 
