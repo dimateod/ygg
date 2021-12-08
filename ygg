@@ -1,13 +1,15 @@
 #!/bin/bash
 
+set -e
+
 THIS_DIR=$(dirname "$(readlink -f "$0")")
-CONF_REPOS="$THIS_DIR/repos"
+CONF_REPOS="$THIS_DIR/repos.list"
+CODEBASE="$THIS_DIR/codebase"
 
 function main {
-  echo Running from $THIS_DIR
   cmd=$1
   if [ -z "$cmd" ]; then
-    echo -e "No command given! Try running\n\$ $0 help"
+    log --red -e "No command given! Try running\n\$ $0 help"
     exit 1
   fi
   shift 1
@@ -17,6 +19,10 @@ function main {
       help $@
       ;;
 
+    "clone")
+      clone $@
+      ;;
+
     *)
       echo "Command not recognized! Try running\n\$ $0 help"
       ;;
@@ -24,7 +30,38 @@ function main {
 }
 
 function help {
-  echo Help: $@
+  echo Usage: $0 COMMAND [OPTIONS]
+  echo Available commands:
+  echo "* clone - git clone repos into the $CODEBASE folder"
+}
+
+function clone {
+  mkdir -p "$CODEBASE"
+  for repo in $(cat $CONF_REPOS); do
+    repodir="$(grep -oP '/.*\.git$' <<<$repo | sed -r 's/\/(.*)\.git$/\1/g')"
+    repodir="$CODEBASE/$repodir"
+    log --green Cloning $repo to $(realpath "$repodir")
+    if [ -e $repodir ]; then
+      log --yellow "Warning: $repodir already exists; clone canceled"
+    else
+      git clone "$repo" "$repodir"
+    fi
+  done
+}
+
+red=`tput setaf 1`
+green=`tput setaf 2`
+yellow=`tput setaf 3`
+reset=`tput sgr0`
+function log {
+  if grep -P "^--" <<<$1 >>/dev/null; then
+    color=$(sed -r "s/--(.*)/\1/g" <<<$1)
+    echo -n $(eval "echo $"$color)
+    shift 1
+  else
+    echo -n $reset
+  fi
+  echo $@ $reset
 }
 
 main $@
