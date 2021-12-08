@@ -42,6 +42,8 @@ function help {
   echo Usage: $0 COMMAND [OPTIONS]
   echo Available commands:
   echo "* clone - git clone repos into the $CODEBASE folder"
+  echo "* refresh - fetch remote data and pull main branch for all registered repos"
+  echo "* refresh-dir - fetch remote data and pull main branch for a local repo"
 }
 
 function clone {
