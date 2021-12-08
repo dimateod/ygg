@@ -60,43 +60,60 @@ function clone {
 
 function refresh {
   log Refreshing all repos cloned in $CODEBASE
+  if test $1 = "-c" 2>/dev/null; then
+    parallel=1
+    declare -a parallel_dirs
+  else
+    parallel=0
+  fi
   for rcdir in $(ls $CODEBASE); do
     radir=$(realpath "$CODEBASE/$rcdir")
     log --info $radir
     if [ ! -e "$radir/.git" ]; then
       log --warn Directory $radir is not a git repo
-    else
+    elif test $parallel = 0; then
       refresh_dir $radir
+    else
+      parallel_dirs+=($radir)
     fi
   done
+  if test $parallel = 1; then
+    for adir in "${parallel_dirs[@]}"; do
+      echo $adir
+    done | xargs -P 20 -Ix bash $0 refresh-dir x --log-location
+  fi
 }
 
 function refresh_dir {
   rcdir=$1
+  logloc=""
+  if test $2 = "--log-location" 2>/dev/null; then
+    logloc=$rcdir
+  fi
   log --info "Fetching remote for $rcdir"
   cd $rcdir
-  _git fetch -apq
+  prefix=$logloc _git fetch -apq
   branch=$(git rev-parse --abbrev-ref HEAD)
   default_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed "s@^origin/@@")
   stash=0
   if ! git status | grep "working tree clean" > /dev/null; then
-    _git stash -q
+    prefix=$logloc _git stash -q
     stash=1
   fi
   if test ! $branch = $default_branch; then
-    _git checkout -q $default_branch
+    prefix=$logloc _git checkout -q $default_branch
   fi
-  _git merge -q --ff-only
+  prefix=$logloc _git merge -q --ff-only
   if test ! $branch = $default_branch; then
-    _git checkout -q $branch
+    prefix=$logloc _git checkout -q $branch
   fi
   if test $stash = 1; then
-    _git stash pop -q
+    prefix=$logloc _git stash pop -q
   fi
 }
 
 function _git {
-  log $ git $@
+  log $prefix$ git $@
   git $@
 }
 
