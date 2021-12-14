@@ -55,7 +55,7 @@ function clone {
     if [ -e $repodir ]; then
       log --warn "Warning: $repodir already exists; clone canceled"
     else
-      git clone "$repo" "$repodir"
+      git clone "$repo" "$repodir" || log --error Error cloning $repo
     fi
   done
 }
