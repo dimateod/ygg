@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+from typing import *
+import argparse
+import json
+import logging
+import logging.config
+import os
+import subprocess
+
+
+def main():
+    Config().app()
+
+
+def status(args):
+    gh_login_status = cmd("""gh auth status 2>/dev/null""")
+    if gh_login_status != 0:
+        log.critical("GitHub CLI is not authenticated! Please run \n$ gh auth login")
+    gh_repos_location = "./repos-github.json"
+    cmd(
+        f"""gh repo list {args.org} \
+            --limit 1000 --json id,name,sshUrl,url,defaultBranchRef \
+            > {gh_repos_location}"""
+    )
+    repos_metadata = RepoMeta(gh_repos_location)
+    for repo in repos_metadata:
+        if repo.local_branch:
+            log.info(f"{repo.name}: local {repo.local_branch}")
+
+
+def fetch(args):
+    pass
+
+
+logging.config.dictConfig(
+    {
+        "disable_existing_loggers": True,
+        "formatters": {
+            "console": {
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+                "format": "[%(asctime)s][%(levelname)s]:%(lineno)d | %(message)s",
+            }
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "console",
+                "level": "DEBUG",
+                "stream": "ext://sys.stderr",
+            },
+        },
+        "loggers": {
+            "": {"handlers": ["console"], "level": "INFO", "propagate": False},
+            __name__: {"handlers": ["console"], "level": "INFO", "propagate": False},
+        },
+        "version": 1,
+    }
+)
+log = logging.getLogger(__name__)
+cmd = os.system
+cmdoutput = lambda *a, **kw: subprocess.check_output(*a, **kw).decode("utf-8").strip()
+
+
+class RepoMeta(list):
+    class Repo(dict):
+        def __init__(self, raw_data: dict) -> None:
+            simple_properties = ("name", "url")
+            for prop in simple_properties:
+                self[prop] = raw_data.pop(prop)
+
+            self["ssh_url"] = raw_data["sshUrl"]
+            self["default_branch"] = raw_data["defaultBranchRef"]["name"]
+
+            self.local_branch = None
+
+            self.detect_local_status()
+
+        def detect_local_status(self):
+            if os.path.exists(os.path.join(".", self.name)):
+                local_branch = cmdoutput(f"git -C ./{self.name} symbolic-ref --short HEAD", shell=True)
+                self.local_branch = local_branch
+            else:
+                log.warning(f"{self.name} is not cloned")
+
+        def __getattribute__(self, __name: str) -> Any:
+            if __name in self:
+                return self[__name]
+            return super().__getattribute__(__name)
+
+    def __init__(self, gh_repos_location: str) -> None:
+        with open(gh_repos_location) as infile:
+            self.raw_data = json.load(infile)
+        for repo_meta in self.raw_data:
+            self.append(self.Repo(repo_meta))
+
+
+class Config:
+    _ARGS = {
+        "parameters": {
+            "--org": {
+                "help": "GitHub organization/user name",
+                "type": str,
+                "required": False,
+                "default": "figshare",
+            }
+        },
+        "commands": {
+            status: {
+            },
+            fetch: {
+            },
+        },
+    }
+
+    def __init__(self) -> None:
+        self._get_args()
+
+    def app(self):
+        if getattr(self.args, "func", None):
+            return self.args.func(self.args)
+        self.parser.print_usage()
+
+    def _get_args(self):
+        parser = argparse.ArgumentParser()
+        for param_name, param_args in self._ARGS["parameters"].items():
+            parser.add_argument(param_name, **param_args)
+
+        subparsers = parser.add_subparsers()
+        for command_func, parameters in self._ARGS["commands"].items():
+            subparser = subparsers.add_parser(command_func.__name__)
+            subparser.set_defaults(func=command_func)
+            for param_name, param_args in parameters.items():
+                subparser.add_argument(param_name, **param_args)
+
+        self.parser = parser
+        self.args = parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
